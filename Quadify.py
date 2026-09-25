@@ -11,31 +11,6 @@ from typing import ByteString, Iterable
 from Vector import Vector
 
 
-def pop_bit(string: str):
-    bit, rest = ord(string[0]) % 2, \
-                ''.join((chr(ord(string[i + 1]) % 2 * 128 + ord(string[i]) // 2)) for i in range(len(string) - 1)) \
-                + chr(ord(string[-1]) // 2)
-    return bit, rest
-
-
-def push_bit(bit: int, string: str):
-    # return chr((ord(string[0])*2+bit) % 256)\
-    #        + ''.join((chr(ord(string[i-1]) * 2 % 256 + ord(string[i]) * 2)) for i in range(1, len(string)))
-    num = ((ord(string[0]) * 2) + bit)
-    new_string = chr(num % 256)
-    carry = num // 256
-    string = string[1:]
-    while string:
-        num = ((ord(string[0]) * 2) + carry)
-        new_string += chr(num % 256)
-        carry = num // 256
-        string = string[1:]
-    while carry:
-        new_string += chr(carry % 256)
-        carry //= 256
-    return new_string
-
-
 class Binable:
     def to_bin(self) -> bytes:
         return b''
@@ -71,7 +46,7 @@ class ByteInt(int, Binable):
         return ByteInt(int(self) // other)
 
     def to_bin(self):
-        return chr(int(self)).encode()
+        return int(self).to_bytes(1, 'little')
 
     def __str__(self):
         return str(int(self)) + 'd'
@@ -135,7 +110,7 @@ class Quad(Binable):
                         quad.put_pixel(at_pos, value)
 
     def to_bin(self):
-        return chr(int(self.is_subdivided())).encode() + b''.join(map(to_bin, reversed(self.value)))
+        return int(self.is_subdivided()).to_bytes(1, 'little') + b''.join(map(to_bin, reversed(self.value)))
 
     def to_bin_dense(self):
         return push_bit(int(self.is_subdivided()),
@@ -149,39 +124,18 @@ class Quad(Binable):
         return int(self.get_value())
 
     @staticmethod
-    def from_string(string, size: Vector[float, float] = None) -> Quad:
+    def from_bytes(input_bytes, size: Vector[float, float] = None) -> Quad:
         quad = Quad(size=size)
         quad_stack = [quad]
-        # print(string)
-        while quad_stack and string != '':
-            # print(ord(string[0]), string[0])
+        while quad_stack and input_bytes != '':
             operating_quad = quad_stack.pop(-1)
-            if ord(string[0]) == 1:
+            if input_bytes[0] == 1:
                 quad_stack += operating_quad.subdivide()
-                string = string[1:]
+                input_bytes = input_bytes[1:]
             else:
-                operating_quad.value = [ByteInt(ord(string[1]))]
-                string = string[2:]
+                operating_quad.value = [ByteInt(input_bytes[1])]
+                input_bytes = input_bytes[2:]
         # print(quad.to_bin().decode())
-        return quad
-
-    @staticmethod
-    def from_dense_string(string, size: Vector[float, float] = None) -> Quad:
-        quad = Quad(size=size)
-        quad_stack = [quad]
-        start_length = len(string)
-        while quad_stack and string != '':
-            print(f'\r{len(string)} {100-round(len(string) / start_length * 100, 3)}%', end='')
-            operating_quad = quad_stack.pop(-1)
-            bit, string = pop_bit(string)
-            if bit == 1:
-                quad_stack += operating_quad.subdivide()
-            else:
-                operating_quad.value = [ByteInt(ord(string[0]))]
-                string = string[1:]
-        if string != '':
-            print('something went wrong!')
-        print()
         return quad
 
 
@@ -228,17 +182,17 @@ def debug_fill_quads(quads: list[Quad] | tuple[Quad]):
 
 
 def save_image_as_quads(path: os.PathLike | str, img: Image.Image, margin=25):
-    assert path.split('.')[-1] in ('quads', 'dquads')
+    extension = path.split('.')[-1]
+    assert extension in ('quads', 'dquads')
     with open(path, 'wb') as f:
         size = str(img.size).encode()
         f.write(str(len(size)).zfill(4).encode() + size)
         quads = quadify_image(img, margin=margin)
         for quad in quads:
-            if path.split('.')[1] == 'dquads':
-                bin_quad = quad.to_bin_dense()
-            else:
-                bin_quad = quad.to_bin()
-            f.write(str(len(bin_quad.decode())).zfill(8).encode() + bin_quad)
+            match extension:
+                case 'quads':
+                    bin_quad = quad.to_bin()
+            f.write(str(len(bin_quad)).zfill(8).encode() + bin_quad)
 
 
 def quick_dequadify(quads: list[Quad]):
@@ -264,19 +218,15 @@ def quick_dequadify(quads: list[Quad]):
 
 def load_quads_image(path: os.PathLike | str):
     sys.setrecursionlimit(100000)
-    old_quads = path.split('.')[-1] == 'quads'
     with open(path, 'rb') as f:
-        data = f.read().decode()
+        data = f.read()
         size_length = int(data[:4])
-        size = tuple(map(int, data[5:4 + size_length - 1].split(', ')))
+        size = tuple(map(int, data[5:4 + size_length - 1].decode().split(', ')))
         quads = []
         data = data[size_length + 4:]
         while data:
             quad_size = int(data[:8])
-            if old_quads:
-                quad = Quad.from_string(data[8:8 + quad_size], Vector(size))
-            else:
-                quad = Quad.from_dense_string(data[8:8 + quad_size], Vector(size))
+            quad = Quad.from_bytes(data[8:8 + quad_size], Vector(size))
             quads.append(quad)
             data = data[quad_size + 8:]
         img = quick_dequadify(quads)
@@ -285,20 +235,6 @@ def load_quads_image(path: os.PathLike | str):
 
 
 if __name__ == '__main__':
-
-    s = 'hello world!'
-    s2 = ''.join((push_bit(i % 2, s[i]) for i in range(len(s))))
-    print(' '.join(s2))
-    print(*map(lambda x: pop_bit(x)[0], s2))
-    print(*map(lambda x: pop_bit(x)[1], s2))
-    for _ in range(8*6):
-        bit2, s = pop_bit(s)
-        print(bit2, end='')
-    print()
-    for i in s:
-        print(ord(i))
-    print(s)
-
     image = Image.open('images/test_squares/test_squares2.png')
     # quadified = quadify_image(image)
     # print(*map(to_bin, quadified))
@@ -306,8 +242,8 @@ if __name__ == '__main__':
     # dequadify(debug_fill_quads(quadified)).show()
 
     # save_image_as_quads('test_squares.dquads', image, margin=25)
-    save_image_as_quads('test_squares.dquads', image, margin=5)
+    save_image_as_quads('test_squares.quads', image, margin=5)
     print('saved!')
-    out1, out2 = load_quads_image('test_squares.dquads')
+    out1, out2 = load_quads_image('test_squares.quads')
     out1.show()
     out2.show()
