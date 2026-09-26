@@ -14,13 +14,13 @@ def quality_check(original: Image, new: Image):
 
 
 if __name__ == '__main__':
-    img = Image.open('images/scary_house_night.png')
-    img2 = load_quads_image('scary_house.quads')[0]
+    img = Image.open('[...].png')
+    img2 = load_quads_image('[...].quads')[0]
     print()
     print(quality_check(img, img2))
-    img2 = load_quads_image('scary_house-20.quads')[0]
+    img2 = load_quads_image('[...].quads')[0]
     print()
     print(quality_check(img, img2))
-    img2 = Image.open('images/scary_house_night.jpg')
+    img2 = Image.open('[...].jpg')
     print()
     print(quality_check(img, img2))
