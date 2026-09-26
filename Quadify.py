@@ -4,6 +4,8 @@ import os
 import random
 import sys
 import time
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image
 from typing import ByteString, Iterable
@@ -16,13 +18,7 @@ class Binable:
         return b''
 
 
-def to_bin(binable: Binable | int):
-    return binable.to_bin()
-
-
-def to_bin_dense(binable: Binable):
-    if isinstance(binable, Quad):
-        return binable.to_bin_dense()
+def to_bin(binable: Btest_squares2inable | int):
     return binable.to_bin()
 
 
@@ -89,7 +85,7 @@ class Quad(Binable):
     def is_subdivided(self):
         return len(self.value) > 1
 
-    def put_pixel(self, at_pos: Vector[float, float], value: ByteInt):
+    def put_pixel(self, at_pos: Vector[float, float], value: ByteInt, recursive=True):
         self.used += 1
         if self.used <= 1:
             self.value = [value]
@@ -97,24 +93,21 @@ class Quad(Binable):
         if not self.is_subdivided():
             if abs(self.get_value() - value) > self.margin:
                 self.subdivide()
-                self.put_pixel(at_pos, value)
+                if recursive:
+                    self.put_pixel(at_pos, value)
             else:
-                # self.value = [ByteInt(((self.size[0]*self.size[1]-1)*int(self.get_value())+int(value))
-                #               // (self.size[0]*self.size[1]))]
                 self.value = [ByteInt(((self.used - 1) * int(self.get_value()) + int(value))
                                       // self.used)]
         else:
-            for quad in self.value:
-                if isinstance(quad, Quad):  # for the IDE
-                    if quad.includes(at_pos):
-                        quad.put_pixel(at_pos, value)
+            if recursive:
+                for quad in self.value:
+                    if isinstance(quad, Quad):  # for the IDE
+                        if quad.includes(at_pos):
+                            quad.put_pixel(at_pos, value)
 
     def to_bin(self):
         return int(self.is_subdivided()).to_bytes(1, 'little') + b''.join(map(to_bin, reversed(self.value)))
 
-    def to_bin_dense(self):
-        return push_bit(int(self.is_subdivided()),
-                        b''.join(map(to_bin_dense, reversed(self.value))).decode()).encode()
 
     def get_value_at(self, pos: Vector[float, float]):
         if self.is_subdivided():
@@ -137,6 +130,16 @@ class Quad(Binable):
                 input_bytes = input_bytes[2:]
         # print(quad.to_bin().decode())
         return quad
+
+    def feed_image(self, img_load, size, channel: int):
+        for x in range(*map(lambda off: int(off*size[0]), (self.pos[0], self.pos[0]+self.size[0]))):
+            for y in range(*map(lambda off: int(off*size[1]), (self.pos[1], self.pos[1]+self.size[1]))):
+                self.put_pixel(Vector((x, y)), ByteInt(img_load[x, y][channel]), recursive=False)
+                if self.is_subdivided():
+                    for quad in self.value:
+                        quad.feed_image(img_load, size, channel)
+                    return self
+        return self
 
 
 def quadify_image(img: Image.Image, margin=10, iterations=2):
@@ -187,7 +190,12 @@ def save_image_as_quads(path: os.PathLike | str, img: Image.Image, margin=25):
     with open(path, 'wb') as f:
         size = str(img.size).encode()
         f.write(str(len(size)).zfill(4).encode() + size)
-        quads = quadify_image(img, margin=margin)
+        loaded_img = img.load()
+        quads = [
+            Quad(margin=margin).feed_image(loaded_img, img.size, channel=0),
+            Quad(margin=margin).feed_image(loaded_img, img.size, channel=1),
+            Quad(margin=margin).feed_image(loaded_img, img.size, channel=2),
+        ]
         for quad in quads:
             match extension:
                 case 'quads':
@@ -218,10 +226,11 @@ def quick_dequadify(quads: list[Quad]):
 
 def load_quads_image(path: os.PathLike | str):
     sys.setrecursionlimit(100000)
+    version = path.split('.')[-1]
     with open(path, 'rb') as f:
-        data = f.read()
+        data = memoryview(f.read())
         size_length = int(data[:4])
-        size = tuple(map(int, data[5:4 + size_length - 1].decode().split(', ')))
+        size = tuple(map(int, data[5:4 + size_length - 1].tobytes().decode().split(', ')))
         quads = []
         data = data[size_length + 4:]
         while data:
@@ -235,14 +244,8 @@ def load_quads_image(path: os.PathLike | str):
 
 
 if __name__ == '__main__':
-    image = Image.open('images/test_squares/test_squares2.png')
-    # quadified = quadify_image(image)
-    # print(*map(to_bin, quadified))
-    # dequadify(quadified).show()
-    # dequadify(debug_fill_quads(quadified)).show()
-
-    # save_image_as_quads('test_squares.dquads', image, margin=25)
-    save_image_as_quads('test_squares.quads', image, margin=5)
+    image = Image.open('images/ballistic-dogus2.png')
+    save_image_as_quads('test_squares.quads', image, margin=15)
     print('saved!')
     out1, out2 = load_quads_image('test_squares.quads')
     out1.show()
