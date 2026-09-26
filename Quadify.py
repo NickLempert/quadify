@@ -244,7 +244,7 @@ def load_quads_image(path: os.PathLike | str):
 
 
 if __name__ == '__main__':
-    image = Image.open('images/test_squares/test_squares.png')
+    image = Image.open('test_squares/test_squares3.png')
     save_image_as_quads('test_squares.quads', image, margin=15)
     print('saved!')
     out1, out2 = load_quads_image('test_squares.quads')
